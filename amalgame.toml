@@ -9,7 +9,7 @@
 
 [package]
 name              = "amalgame-hardware-io"
-version           = "0.1.0"
+version           = "0.2.0"
 license           = "Apache-2.0"
 description       = "Portable I/O expander drivers (PCF8574 8-bit I2C) over Amalgame.Hal — each pin is a DigitalOut + DigitalIn, composes with any driver. Raspberry Pi + future MCU backends."
 authors           = ["Bastien Mouget"]
@@ -17,7 +17,7 @@ required-amalgame = ">=0.8.72"
 schema-version    = 1
 
 [stdlib]
-classes   = ["Pcf8574", "Pcf8574Pin"]
+classes   = ["Pcf8574", "Pcf8574Pin", "Sn74hc595", "Sn74hc595Pin", "Mcp23017", "Mcp23017Pin"]
 header    = "facade-stub.h"
 namespace = "Amalgame.Hardware.Io"
 facade    = "facade.am"

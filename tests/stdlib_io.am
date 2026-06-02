@@ -4,15 +4,27 @@ import Amalgame.Hal
 import Amalgame.Hardware.Io
 
 public class FakeI2c implements I2cBus {
-    private last: int
-    public FakeI2c() { this.last = 255 }
+    private last:    int
+    private lastReg: int
+    public FakeI2c() { this.last = 255; this.lastReg = 0 }
     public bool WriteByte(addr: int, value: int) { this.last = value; return true }
     public int  ReadByte(addr: int) { return this.last }
-    public bool WriteReg(addr: int, reg: int, value: int) { return true }
+    public bool WriteReg(addr: int, reg: int, value: int) { this.lastReg = value; return true }
     public int  ReadReg(addr: int, reg: int) { return 0 }
     public bool WriteBytes(addr: int, bytes: List<int>) { return true }
     public List<int> ReadBytes(addr: int, count: int) { let l: List<int> = new List<int>(); return l }
     public int Last() { return this.last }
+    public int LastReg() { return this.lastReg }
+}
+
+public class FakeOut implements DigitalOut {
+    private ops: int
+    public FakeOut() { this.ops = 0 }
+    public void Write(level: int) { this.ops = this.ops + 1 }
+    public void High() { this.ops = this.ops + 1 }
+    public void Low()  { this.ops = this.ops + 1 }
+    public void Toggle() { this.ops = this.ops + 1 }
+    public int Ops() { return this.ops }
 }
 
 public class Program {
@@ -32,6 +44,20 @@ public class Program {
         let p1: Pcf8574Pin = exp.Pin(1)
         p1.High()
         if (i2c.Last() == 254) { Console.WriteLine("[PASS] pcf8574 pin1 high keeps 254") } else { Console.WriteLine("[FAIL] pcf8574 pin1"); fail = fail + 1 }
+
+        // 74HC595: WriteByte bit-bangs data/clock + latches.
+        let dta: FakeOut = new FakeOut()
+        let clk: FakeOut = new FakeOut()
+        let lat: FakeOut = new FakeOut()
+        let sr: Sn74hc595 = new Sn74hc595(dta, clk, lat)
+        sr.WriteByte(0xA5)
+        if (clk.Ops() > 0 && lat.Ops() > 0) { Console.WriteLine("[PASS] 74hc595 shift (" + String_FromInt(clk.Ops()) + " clk ops)") } else { Console.WriteLine("[FAIL] 74hc595"); fail = fail + 1 }
+
+        // MCP23017: WritePin(0,true) → GPIOA bit0 set → reg value 1.
+        let mi2c: FakeI2c = new FakeI2c()
+        let mcp: Mcp23017 = new Mcp23017(mi2c, 0x20)
+        mcp.WritePin(0, true)
+        if (mi2c.LastReg() == 1) { Console.WriteLine("[PASS] mcp23017 write pin0") } else { Console.WriteLine("[FAIL] mcp23017 got " + String_FromInt(mi2c.LastReg())); fail = fail + 1 }
 
         if (fail == 0) { Console.WriteLine("io: all good") }
     }
