@@ -1,0 +1,38 @@
+namespace Tests
+
+import Amalgame.Hal
+import Amalgame.Hardware.Io
+
+public class FakeI2c implements I2cBus {
+    private last: int
+    public FakeI2c() { this.last = 255 }
+    public bool WriteByte(addr: int, value: int) { this.last = value; return true }
+    public int  ReadByte(addr: int) { return this.last }
+    public bool WriteReg(addr: int, reg: int, value: int) { return true }
+    public int  ReadReg(addr: int, reg: int) { return 0 }
+    public bool WriteBytes(addr: int, bytes: List<int>) { return true }
+    public List<int> ReadBytes(addr: int, count: int) { let l: List<int> = new List<int>(); return l }
+    public int Last() { return this.last }
+}
+
+public class Program {
+    public static void Main(string[] args) {
+        var fail: int = 0
+        let i2c: FakeI2c = new FakeI2c()
+        let exp: Pcf8574 = new Pcf8574(i2c, 0x20)
+
+        // Drive pin 0 low → port byte loses bit 0 (255 → 254).
+        exp.Pin(0).Low()
+        if (i2c.Last() == 254) { Console.WriteLine("[PASS] pcf8574 write pin0 low") } else { Console.WriteLine("[FAIL] pcf8574 got " + String_FromInt(i2c.Last())); fail = fail + 1 }
+
+        // The fake echoes the last written byte → ReadPin(0) sees 0.
+        if (exp.ReadPin(0) == 0) { Console.WriteLine("[PASS] pcf8574 read pin0") } else { Console.WriteLine("[FAIL] pcf8574 read pin0"); fail = fail + 1 }
+
+        // A pin as DigitalIn (Read) and DigitalOut (High) — both itabs.
+        let p1: Pcf8574Pin = exp.Pin(1)
+        p1.High()
+        if (i2c.Last() == 254) { Console.WriteLine("[PASS] pcf8574 pin1 high keeps 254") } else { Console.WriteLine("[FAIL] pcf8574 pin1"); fail = fail + 1 }
+
+        if (fail == 0) { Console.WriteLine("io: all good") }
+    }
+}
