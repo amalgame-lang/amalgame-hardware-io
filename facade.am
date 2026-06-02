@@ -83,3 +83,140 @@ public class Pcf8574Pin implements DigitalOut, DigitalIn {
     }
     public int Read() { return this.exp.ReadPin(this.n) }
 }
+
+// 74HC595 — 8-bit serial-in / parallel-out shift register. The classic
+// "add 8 cheap outputs on 3 pins" chip (and chainable). Bit-banged via
+// three DigitalOut lines; each output is a DigitalOut via Pin(n).
+//
+//     let sr = new Sn74hc595(new GpioOut(17), new GpioOut(27), new GpioOut(22))
+//     sr.WriteByte(0xA5)
+//     let led3 = new Led(sr.Pin(3))     // an output pin as DigitalOut
+public class Sn74hc595 {
+    private data:  DigitalOut
+    private clock: DigitalOut
+    private latch: DigitalOut
+    private state: int
+
+    public Sn74hc595(data: DigitalOut, clock: DigitalOut, latch: DigitalOut) {
+        this.data  = data
+        this.clock = clock
+        this.latch = latch
+        this.state = 0
+        this.WriteByte(0)
+    }
+
+    // Shift out an 8-bit value (MSB first → QH..QA) and latch it.
+    public void WriteByte(value: int) {
+        this.state = value % 256
+        this.latch.Low()
+        var bit: int = 7
+        while (bit >= 0) {
+            this.clock.Low()
+            var m: int = 1
+            var k: int = 0
+            while (k < bit) { m = m * 2; k = k + 1 }
+            if ((value / m) % 2 == 1) { this.data.High() } else { this.data.Low() }
+            this.clock.High()
+            bit = bit - 1
+        }
+        this.latch.High()
+    }
+
+    public void SetPin(n: int, high: bool) {
+        if (n < 0 || n > 7) { return }
+        var m: int = 1
+        var k: int = 0
+        while (k < n) { m = m * 2; k = k + 1 }
+        let isHigh: bool = (this.state / m) % 2 == 1
+        if (high) { if (!isHigh) { this.WriteByte(this.state + m) } }
+        else { if (isHigh) { this.WriteByte(this.state - m) } }
+    }
+
+    public Sn74hc595Pin Pin(n: int) { return new Sn74hc595Pin(this, n) }
+}
+
+public class Sn74hc595Pin implements DigitalOut {
+    private sr: Sn74hc595
+    private n:  int
+    public Sn74hc595Pin(sr: Sn74hc595, n: int) { this.sr = sr; this.n = n }
+    public void Write(level: int) { this.sr.SetPin(this.n, level != 0) }
+    public void High()   { this.sr.SetPin(this.n, true) }
+    public void Low()    { this.sr.SetPin(this.n, false) }
+    public void Toggle() { }   // write-only register: read-modify handled by SetPin caller
+}
+
+// MCP23017 — 16-bit I²C I/O expander (addr 0x20..0x27). 16 pins, each
+// independently input or output, exposed as DigitalOut + DigitalIn via
+// Pin(n) (0..7 = port A, 8..15 = port B).
+public class Mcp23017 {
+    private bus:  I2cBus
+    private addr: int
+
+    public Mcp23017(bus: I2cBus, addr: int) {
+        this.bus = bus
+        this.addr = addr
+        // Default all-inputs (IODIRA/B = 0xFF) — matches power-on.
+        let _a: bool = this.bus.WriteReg(this.addr, 0x00, 0xFF)
+        let _b: bool = this.bus.WriteReg(this.addr, 0x01, 0xFF)
+    }
+
+    // direction: true = output, false = input.
+    public void SetDir(pin: int, output: bool) {
+        if (pin < 0 || pin > 15) { return }
+        let reg: int = 0x00          // IODIRA
+        var p: int = pin
+        var r: int = 0x00
+        if (pin > 7) { r = 0x01; p = pin - 8 }   // IODIRB
+        var cur: int = this.bus.ReadReg(this.addr, r)
+        if (cur < 0) { cur = 0xFF }
+        let m: int = this.Mask(p)
+        let isIn: bool = (cur / m) % 2 == 1      // 1 = input
+        if (output) { if (isIn) { cur = cur - m } }
+        else { if (!isIn) { cur = cur + m } }
+        let _w: bool = this.bus.WriteReg(this.addr, r, cur)
+    }
+
+    public void WritePin(pin: int, high: bool) {
+        if (pin < 0 || pin > 15) { return }
+        var p: int = pin
+        var r: int = 0x12            // GPIOA
+        if (pin > 7) { r = 0x13; p = pin - 8 }   // GPIOB
+        var cur: int = this.bus.ReadReg(this.addr, r)
+        if (cur < 0) { cur = 0 }
+        let m: int = this.Mask(p)
+        let isHigh: bool = (cur / m) % 2 == 1
+        if (high) { if (!isHigh) { cur = cur + m } }
+        else { if (isHigh) { cur = cur - m } }
+        let _w: bool = this.bus.WriteReg(this.addr, r, cur)
+    }
+
+    public int ReadPin(pin: int) {
+        if (pin < 0 || pin > 15) { return 0 }
+        var p: int = pin
+        var r: int = 0x12
+        if (pin > 7) { r = 0x13; p = pin - 8 }
+        let v: int = this.bus.ReadReg(this.addr, r)
+        if (v < 0) { return 0 }
+        return (v / this.Mask(p)) % 2
+    }
+
+    private int Mask(p: int) {
+        var m: int = 1
+        var k: int = 0
+        while (k < p) { m = m * 2; k = k + 1 }
+        return m
+    }
+
+    public Mcp23017Pin Pin(n: int) { return new Mcp23017Pin(this, n) }
+}
+
+public class Mcp23017Pin implements DigitalOut, DigitalIn {
+    private exp: Mcp23017
+    private n:   int
+    public Mcp23017Pin(exp: Mcp23017, n: int) { this.exp = exp; this.n = n }
+    public void Write(level: int) { this.exp.WritePin(this.n, level != 0) }
+    public void High()   { this.exp.WritePin(this.n, true) }
+    public void Low()    { this.exp.WritePin(this.n, false) }
+    public void Toggle() { if (this.exp.ReadPin(this.n) == 1) { this.Low() } else { this.High() } }
+    public int Read() { return this.exp.ReadPin(this.n) }
+}
