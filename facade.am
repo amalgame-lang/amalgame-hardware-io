@@ -1,0 +1,85 @@
+namespace Amalgame.Hardware.Io
+
+// ── Amalgame.Hardware.Io — I/O expanders ──────────────────
+//
+// Add more digital pins over I²C. A PCF8574 gives you 8 extra GPIO on
+// two wires, and each pin is exposed as a DigitalOut *and* DigitalIn
+// via Pin(n) — so it drops into any driver that wants a digital line
+// (LEDs, relays, buttons, LCD backpacks…). Portable over Amalgame.Hal.
+//
+//     import Amalgame.Hardware          // I2c (Pi backend)
+//     import Amalgame.Hardware.Io
+//     import Amalgame.Hardware.Led
+//
+//     let exp = new Pcf8574(new I2c(1), 0x20)
+//     let led = new Led(exp.Pin(0))     // an expander pin as a DigitalOut
+//     led.On()
+
+import Amalgame.Hal
+
+// PCF8574 — 8-bit quasi-bidirectional I²C I/O expander (addr 0x20..0x27
+// for PCF8574, 0x38..0x3F for PCF8574A). Outputs are open-drain; to use
+// a pin as an input, drive it high first (the constructor sets all high).
+public class Pcf8574 {
+    private bus:   I2cBus
+    private addr:  int
+    private state: int   // last written port byte (bit n = pin n)
+
+    public Pcf8574(bus: I2cBus, addr: int) {
+        this.bus = bus
+        this.addr = addr
+        this.state = 255          // all high (inputs released / outputs off)
+        let _w: bool = this.bus.WriteByte(this.addr, this.state)
+    }
+
+    private int Mask(pin: int) {
+        var m: int = 1
+        var k: int = 0
+        while (k < pin) { m = m * 2; k = k + 1 }
+        return m
+    }
+
+    public void WritePin(pin: int, high: bool) {
+        if (pin < 0 || pin > 7) { return }
+        let m: int = this.Mask(pin)
+        let isHigh: bool = (this.state / m) % 2 == 1
+        if (high) {
+            if (!isHigh) { this.state = this.state + m }
+        } else {
+            if (isHigh) { this.state = this.state - m }
+        }
+        let _w: bool = this.bus.WriteByte(this.addr, this.state)
+    }
+
+    public int ReadPin(pin: int) {
+        if (pin < 0 || pin > 7) { return 0 }
+        let v: int = this.bus.ReadByte(this.addr)
+        if (v < 0) { return 0 }
+        return (v / this.Mask(pin)) % 2
+    }
+
+    // A single expander pin, usable as a DigitalOut or a DigitalIn.
+    public Pcf8574Pin Pin(n: int) {
+        return new Pcf8574Pin(this, n)
+    }
+}
+
+// One PCF8574 pin — implements both digital interfaces, so it works as
+// an output (LED/relay) or an input (button) wherever a driver asks.
+public class Pcf8574Pin implements DigitalOut, DigitalIn {
+    private exp: Pcf8574
+    private n:   int
+
+    public Pcf8574Pin(exp: Pcf8574, n: int) {
+        this.exp = exp
+        this.n   = n
+    }
+
+    public void Write(level: int) { this.exp.WritePin(this.n, level != 0) }
+    public void High()   { this.exp.WritePin(this.n, true) }
+    public void Low()    { this.exp.WritePin(this.n, false) }
+    public void Toggle() {
+        if (this.exp.ReadPin(this.n) == 1) { this.Low() } else { this.High() }
+    }
+    public int Read() { return this.exp.ReadPin(this.n) }
+}

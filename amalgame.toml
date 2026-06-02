@@ -1,0 +1,26 @@
+# Package manifest — amalgame-hardware-io
+#
+# I/O expanders over the Amalgame.Hal interfaces: more digital pins on
+# an I2C bus. Each expander pin is a DigitalOut + DigitalIn, so it drops
+# into any driver. Runs on Raspberry Pi and future MCU backends.
+#
+#   Pcf8574     — 8-bit I2C I/O expander
+#   Pcf8574Pin  — one pin, implements DigitalOut + DigitalIn (via .Pin(n))
+
+[package]
+name              = "amalgame-hardware-io"
+version           = "0.1.0"
+license           = "Apache-2.0"
+description       = "Portable I/O expander drivers (PCF8574 8-bit I2C) over Amalgame.Hal — each pin is a DigitalOut + DigitalIn, composes with any driver. Raspberry Pi + future MCU backends."
+authors           = ["Bastien Mouget"]
+required-amalgame = ">=0.8.72"
+schema-version    = 1
+
+[stdlib]
+classes   = ["Pcf8574", "Pcf8574Pin"]
+header    = "facade-stub.h"
+namespace = "Amalgame.Hardware.Io"
+facade    = "facade.am"
+
+[dependencies]
+amalgame-hal = ">=0.1.0"
